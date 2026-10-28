@@ -103,14 +103,12 @@ class AssessmentTests(ApiTestCase):
         self.assertEqual((body["status"], body["result"]["summary"]["detection_count"], body["result"]["detections"]), ("completed", 0, []))
 
     def test_unknown_label_and_dependency_failures_are_recorded(self) -> None:
-        ok = mock.Mock(return_value=output("Full Black"))
         cases = [
-            ("unknown label", mock.Mock(return_value=output("Mystery Spot")), mock.Mock(return_value=ADVISORY), "INFERENCE_FAILED"),
-            ("vision down", mock.Mock(side_effect=VisionUnavailable("down")), mock.Mock(return_value=ADVISORY), "INFERENCE_FAILED"),
-            ("advisor down", ok, mock.Mock(side_effect=AdvisoryFailed("quota")), "ADVISORY_FAILED"),
+            ("unknown label", mock.Mock(return_value=output("Mystery Spot")), "INFERENCE_FAILED"),
+            ("vision down", mock.Mock(side_effect=VisionUnavailable("down")), "INFERENCE_FAILED"),
         ]
-        for name, detect, generate, code in cases:
-            with self.subTest(name), mock.patch.object(vision, "detect", detect), mock.patch.object(advisor, "generate", generate):
+        for name, detect, code in cases:
+            with self.subTest(name), mock.patch.object(vision, "detect", detect), mock.patch.object(advisor, "generate", return_value=ADVISORY):
                 response = self.upload(self.alice)
             error = response.json()["error"]
             self.assertEqual((response.status_code, error["code"]), (502, code))
@@ -118,6 +116,22 @@ class AssessmentTests(ApiTestCase):
             self.assertEqual((recorded.status, recorded.error_code, recorded.result), ("failed", code, None))
             shown = self.alice.get(f"/api/v1/assessments/{recorded.id}").json()
             self.assertEqual((shown["status"], shown["error_code"]), ("failed", code))
+
+    def test_advisory_falls_back_to_rule_based_when_gemini_fails(self) -> None:
+        detected = output("Full Black", "Partial Black")
+        with mock.patch.object(vision, "detect", return_value=detected), \
+             mock.patch.object(advisor, "generate", side_effect=AdvisoryFailed("quota")):
+            response = self.upload(self.alice)
+
+        self.assertEqual(response.status_code, 201)
+        body = response.json()
+        self.assertEqual(body["status"], "completed")
+        self.assertIsNone(body.get("error_code"))
+        advisory = body["result"]["advisory"]
+        self.assertEqual(advisory["generator_model"], "rule-based-v1")
+        self.assertIn("primary defect(s)", advisory["summary"]["en"])
+        self.assertIn("ዋና ጉድለቶች", advisory["summary"]["am"])
+        self.assertEqual(len(advisory["recommendations"]), 2)
 
     def test_a_non_coffee_photo_is_rejected_and_not_recorded(self) -> None:
         rejection = NotCoffeeImage("gate", coffee_confidence=0.02, threshold=0.75)

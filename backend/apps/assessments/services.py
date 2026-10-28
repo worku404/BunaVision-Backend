@@ -26,11 +26,12 @@ from django.db import DatabaseError, IntegrityError, transaction
 from django.utils import timezone
 
 from apps.assessments import analysis
-from apps.assessments.clients import advisor, vision
+from apps.assessments.clients import advisor, rule_based_advisory as rule_based_advisor, vision
 from apps.assessments.image_validation import ImageLimits, ValidatedImage, validate_image
 from apps.assessments.models import Assessment
 from apps.assessments.taxonomy import TAXONOMY, UnknownDefectLabel
 from apps.common.errors import (
+    AdvisoryFailed,
     DependencyError,
     IdempotencyKeyReused,
     PersistenceFailed,
@@ -87,7 +88,13 @@ def _run_pipeline(
     ]
     summary = analysis.summarize(detections)
     scanned, not_scanned = TAXONOMY.scanned, TAXONOMY.not_scanned
-    advisory = advisor.generate(summary, scanned, not_scanned)
+    # After:
+    try:
+        advisory = advisor.generate(summary, scanned, not_scanned)
+    except AdvisoryFailed as exc:
+        logger.warning("Gemini advisor unavailable (%s); using rule-based fallback.", exc)
+        advisory = rule_based_advisor.generate(summary, scanned, not_scanned)
+
 
     original_key, annotated_key = _store_images(assessment_id, image, output.annotated_image)
     result = {

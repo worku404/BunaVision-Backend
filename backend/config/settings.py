@@ -141,7 +141,10 @@ VISION_TIMEOUT_S = config("VISION_TIMEOUT_S", default=30.0, cast=float)
 VISION_CONNECT_TIMEOUT_S = config("VISION_CONNECT_TIMEOUT_S", default=3.0, cast=float)
 VISION_RELOAD_TIMEOUT_S = config("VISION_RELOAD_TIMEOUT_S", default=60.0, cast=float)
 
-GEMINI_API_KEY = config("GEMINI_API_KEY")
+API1_KEY = config("API1_KEY")
+API2_KEY = config("API2_KEY")
+API3_KEY = config("API3_KEY")
+API4_KEY = config("API4_KEY")
 GEMINI_MODEL = config("GEMINI_MODEL")  # check Google's deprecations page: models are retired
 GEMINI_TIMEOUT_S = config("GEMINI_TIMEOUT_S", default=30.0, cast=float)
 GEMINI_TEMPERATURE = config("GEMINI_TEMPERATURE", default=0.2, cast=float)

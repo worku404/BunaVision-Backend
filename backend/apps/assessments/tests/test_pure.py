@@ -6,6 +6,7 @@ import unittest
 from PIL import Image
 
 from apps.assessments.analysis import Detection, limitations_for, summarize
+from apps.assessments.clients import rule_based_advisory
 from apps.assessments.image_validation import ImageFormat, ImageLimits, validate_image
 from apps.assessments.taxonomy import TAXONOMY, DefectCategory, DefectClass, DefectTaxonomy, UnknownDefectLabel
 from apps.common.errors import (
@@ -112,5 +113,46 @@ class ErrorTests(unittest.TestCase):
         self.assertEqual(error.details, {"is_coffee": False, "coffee_confidence": 0.02, "threshold": 0.75})
 
 
+class RuleBasedAdvisoryTests(unittest.TestCase):
+    def test_zero_defects_returns_reassurance_and_verification_advice(self) -> None:
+        summary = {"detection_count": 0, "primary_detection_count": 0, "secondary_detection_count": 0}
+        advisory = rule_based_advisory.generate(summary, TAXONOMY.scanned, TAXONOMY.not_scanned)
+        self.assertEqual(advisory["generator_model"], "rule-based-v1")
+        self.assertIn("No visible defect detections", advisory["summary"]["en"])
+        self.assertIn("ምንም የሚታይ ጉድለት አልተገኘም", advisory["summary"]["am"])
+        self.assertEqual(len(advisory["recommendations"]), 1)
+        self.assertIn("manual verification", advisory["recommendations"][0]["en"].lower())
+
+    def test_primary_defects_returns_high_severity_advice(self) -> None:
+        summary = {"detection_count": 3, "primary_detection_count": 1, "secondary_detection_count": 2}
+        advisory = rule_based_advisory.generate(summary, TAXONOMY.scanned, TAXONOMY.not_scanned)
+        self.assertEqual(advisory["generator_model"], "rule-based-v1")
+        self.assertIn("including 1 primary defect(s)", advisory["summary"]["en"])
+        self.assertIn("1 ዋና ጉድለቶች", advisory["summary"]["am"])
+        self.assertEqual(len(advisory["recommendations"]), 2)
+        self.assertIn("hand-pick", advisory["recommendations"][0]["en"].lower())
+
+    def test_secondary_defects_only_returns_sorting_advice(self) -> None:
+        summary = {"detection_count": 4, "primary_detection_count": 0, "secondary_detection_count": 4}
+        advisory = rule_based_advisory.generate(summary, TAXONOMY.scanned, TAXONOMY.not_scanned)
+        self.assertEqual(advisory["generator_model"], "rule-based-v1")
+        self.assertIn("4 secondary defect(s)", advisory["summary"]["en"])
+        self.assertIn("4 ሁለተኛ ደረጃ ጉድለቶች", advisory["summary"]["am"])
+        self.assertEqual(len(advisory["recommendations"]), 2)
+        self.assertIn("huller screens", advisory["recommendations"][0]["en"].lower())
+
+    def test_advisory_structure_matches_bilingual_contract(self) -> None:
+        summary = {"detection_count": 1, "primary_detection_count": 1, "secondary_detection_count": 0}
+        advisory = rule_based_advisory.generate(summary, TAXONOMY.scanned, TAXONOMY.not_scanned)
+        self.assertIn("en", advisory["summary"])
+        self.assertIn("am", advisory["summary"])
+        for rec in advisory["recommendations"]:
+            self.assertIn("en", rec)
+            self.assertIn("am", rec)
+            self.assertTrue(len(rec["en"]) > 0)
+            self.assertTrue(len(rec["am"]) > 0)
+
+
 if __name__ == "__main__":
     unittest.main()
+

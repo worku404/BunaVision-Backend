@@ -10,7 +10,7 @@ Results are preliminary AI predictions, never official grades.
 ```bash
 cp .env.example .env && $EDITOR .env && set -a && source .env && set +a
 docker run -d --name bunavision-db -e POSTGRES_USER=bunavision -e POSTGRES_PASSWORD=change-me \
-  -e POSTGRES_DB=bunavision -p 5432:5432 postgres:16
+  -e POSTGRES_DB=bunavision -p 5432:5432 postgres:16 5432:5432 postgres:16
 pip install -r requirements.txt
 python manage.py migrate
 python manage.py createcachetable                      # shared throttle counters (skip with REDIS_URL)
@@ -24,13 +24,21 @@ dashboard: `/django-admin/`.
 
 ## Tests
 
-```bash
-python -m unittest apps.assessments.tests.test_pure       # framework-free, no setup
-SECRET_KEY=t ALLOWED_HOSTS=localhost DATABASE_URL=sqlite:///test.sqlite3 VISION_SERVICE_URL=http://vision.test \
-  GEMINI_API_KEY=x GEMINI_MODEL=x IMAGE_STORE=memory python manage.py test
-```
-
-## Layout
+| Method and path                       | Who       | Purpose                                                                     |
+| ------------------------------------- | --------- | --------------------------------------------------------------------------- |
+| `POST /auth/register`                 | anyone    | create an account (role `user`)                                             |
+| `POST /auth/login`                    | anyone    | email + password -> bearer token                                            |
+| `GET /auth/me`                        | signed in | the current user                                                            |
+| `POST /assessments`                   | signed in | upload a photo (multipart field `image`); optional `Idempotency-Key` header |
+| `GET /assessments`                    | signed in | your history, newest first, cursor-paginated (`limit`, `cursor`)            |
+| `GET /assessments/{id}`               | signed in | one of your assessments                                                     |
+| `GET /admin/assessments`              | admin     | every user's attempts; filter `status`, `error_code`, `owner_id`            |
+| `GET /admin/assessments/{id}`         | admin     | one attempt from any user                                                   |
+| `GET /admin/model-versions`           | admin     | vision model + validator versions that produced results                     |
+| `GET /admin/overview?window_hours=24` | admin     | outcome counts: completed, failed by error code                             |
+| `GET /admin/limits`                   | admin     | the upload, quota and timeout limits being enforced                         |
+| `POST /admin/vision/reload-model`     | admin     | ask the vision service to reload its model                                  |
+| `GET /health`                         | anyone    | liveness                                                                    |
 
 ```
 config/            settings.py (env-driven, fails fast), urls.py, wsgi.py
@@ -42,13 +50,13 @@ apps/assessments/  Assessment model, services.py (the pipeline), clients/ (visio
 
 ## API (`/api/v1`) and who can call it
 
-| Method and path | Who |
-|---|---|
-| `POST /auth/register`, `POST /auth/login` | anyone (throttled per IP) |
-| `GET /auth/me` | signed in |
-| `POST /assessments` (multipart `image`, optional `Idempotency-Key`), `GET /assessments`, `GET /assessments/{id}` | signed in; hourly quota per user |
-| `GET /admin/assessments` (filters `status`, `error_code`, `owner_id`), `GET /admin/assessments/{id}`, `GET /admin/model-versions`, `GET /admin/overview`, `GET /admin/limits`, `POST /admin/vision/reload-model` | `is_staff` only |
-| `GET /health` (no prefix) | anyone |
+| Method and path                                                                                                                                                                                                  | Who                              |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
+| `POST /auth/register`, `POST /auth/login`                                                                                                                                                                        | anyone (throttled per IP)        |
+| `GET /auth/me`                                                                                                                                                                                                   | signed in                        |
+| `POST /assessments` (multipart `image`, optional `Idempotency-Key`), `GET /assessments`, `GET /assessments/{id}`                                                                                                 | signed in; hourly quota per user |
+| `GET /admin/assessments` (filters `status`, `error_code`, `owner_id`), `GET /admin/assessments/{id}`, `GET /admin/model-versions`, `GET /admin/overview`, `GET /admin/limits`, `POST /admin/vision/reload-model` | `is_staff` only                  |
+| `GET /health` (no prefix)                                                                                                                                                                                        | anyone                           |
 
 A photo that is not green coffee gets `422 IMAGE_NOT_COFFEE` with
 `error.details = {is_coffee: false, coffee_confidence, threshold}`; it is not stored or counted as a
